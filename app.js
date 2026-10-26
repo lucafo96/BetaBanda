@@ -20,11 +20,18 @@ const configured=/^https:\/\/[\w-]+\.supabase\.co\/?$/.test(SUPABASE_URL)&&SUPAB
 const db=configured?createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY):null;
 let user=null,account=null,roles=[],tab='dashboard',events=[],rooms=[];
 let chatTarget=null;
-const VERSION='0.9.0';
+const VERSION='1.0.0';
 const dashCache={};
 const localPrefKey='bb09-preferences';
 function prefs(){try{return {...JSON.parse(localStorage.getItem('bb08-preferences')||'{}'),...JSON.parse(localStorage.getItem(localPrefKey)||'{}')}}catch{return {}}}
-function savePrefs(value){localStorage.setItem(localPrefKey,JSON.stringify({...prefs(),...value}))}
+async function savePrefs(value){
+ // Salviamo subito localmente per funzionare anche senza rete.
+ const next={...prefs(),...value};localStorage.setItem(localPrefKey,JSON.stringify(next));
+ // La migrazione 008 aggiunge un record per account: ritroviamo il tema su altri dispositivi.
+ if(account){const r=await db.from('bb_user_prefs').upsert({account_id:account.id,prefs:next,updated_at:new Date().toISOString()});if(r.error)console.warn('Preferenze non sincronizzate:',r.error.message)}
+}
+async function loadRemotePrefs(){if(!account)return;const r=await db.from('bb_user_prefs').select('prefs').eq('account_id',account.id).maybeSingle();if(r.data?.prefs){localStorage.setItem(localPrefKey,JSON.stringify(r.data.prefs));applyAccessibility()}}
+
 function applyAccessibility(){const p=prefs();document.documentElement.style.setProperty('--font-scale', String(Math.max(.8,Math.min(2,Number(p.scale)||1))));document.documentElement.dataset.font=p.font||'system';document.documentElement.dataset.contrast=p.contrast?'high':'normal';document.documentElement.dataset.theme=p.theme||'dark'}
 applyAccessibility();
 const can=r=>roles.includes(r),master=()=>can('total_master');
@@ -95,7 +102,7 @@ async function current(){
  account=null;roles=[];
  if(user){
    const res=await db.from('bb_accounts').select('id,username,status').eq('auth_user_id',user.id).maybeSingle();aware(res.error);account=res.data;
-   if(account){const r=await db.from('bb_account_roles').select('role_code').eq('account_id',account.id);aware(r.error);roles=r.data.map(x=>x.role_code)}
+   if(account){const r=await db.from('bb_account_roles').select('role_code').eq('account_id',account.id);aware(r.error);roles=r.data.map(x=>x.role_code);await loadRemotePrefs()}
  }
  $('who').textContent=user?(account?account.username:user.email):'Visitatore';$('signout').hidden=!user;
 }
@@ -357,9 +364,11 @@ async function showSchool(){
  * dalle tabelle amministrative finché le deleghe RLS non sono pronte.
  */
 async function showMyUniform(){
+ if(window.bbUniforms){return window.bbUniforms.mine(db,account,entry,esc,safe,inform)}
  entry('La mia dotazione',`<section><h2>La mia divisa</h2><p>Qui compariranno capi, taglie, quantità e proprietà del materiale collegato alla tua anagrafica.</p><p class="muted">L'attuale archivio sperimentale delle divise usa nominativi testuali, non identificativi univoci: non è sicuro mostrare dotazioni individuali o inviare richieste per conto di un socio finché non introdurremo una relazione verificata tra account e anagrafica.</p><button id="requestUniform" type="button" disabled>Richiedi cambio/divisa · in preparazione</button></section>`);
 }
-async function showUniformManager(){
+async function showUniformManager(){return window.bbUniforms?.manager(db,account,roles,entry,esc,safe,inform) ?? entry('Gestione divise','<p>Modulo non caricato.</p>');}
+async function legacyUniformManager(){
  const res=await db.from('bb_work_items').select('*').eq('module','uniforms').order('created_at',{ascending:false}).limit(300);aware(res.error);const rows=res.data||[];
  const pending=rows.filter(x=>x.details?.status==='richiesta');
  entry('Gestione divise',`<section><h2>Richieste dei soci</h2><p><strong>${pending.length}</strong> richieste da verificare (registro di prova).</p>${pending.map(x=>`<article class="lesson-card"><strong>${esc(x.details?.person||'Socio')}</strong><p>${esc(x.details?.article||x.title)} · ${esc(x.details?.size||'')} · q.tà ${esc(x.details?.quantity||'1')}</p></article>`).join('')||'<p>Nessuna richiesta in attesa.</p>'}</section><section><h2>Magazzino e movimenti</h2><p class="muted">Le righe attuali non costituiscono ancora un inventario con giacenze certificate. Puoi continuare a provare inserimenti e cambi di stato.</p><button id="uniformManage">Apri registro divise di prova</button></section><section><h2>Report divise</h2><div id="uniformExports"></div></section>`);
@@ -372,6 +381,15 @@ async function showUniformManager(){
 async function showChat(){
  if(!account){entry('Chat','<p>Accedi per utilizzare la chat.</p>');return}
  entry('Chat tra utenti',`<section><h2>Cerca destinatario</h2><p>Scrivi almeno due caratteri dello username registrato.</p>${field('recipientSearch','Cerca username')}<div id="recipients"></div></section><section><h2 id="conversationHeading">Conversazione</h2><div id="conversation" class="messages"><p>Scegli un destinatario.</p></div><form id="messageForm"><label for="messageText">Messaggio</label><textarea id="messageText" maxlength="10000" rows="3" required></textarea><p><button class="primary" type="submit">Invia messaggio</button> <button type="button" id="chatReload">Aggiorna chat</button></p></form></section>`);
+ // La migrazione 008 di Claude restituisce SOLO le conversazioni dell'account corrente.
+ // Se non è installata, manteniamo utilizzabile la ricerca per username.
+ const history=await db.rpc('bb_conversations');
+ if(!history.error && history.data?.length){
+  const target=$('recipients'); const previous=document.createElement('section');
+  previous.innerHTML='<h3>Conversazioni recenti</h3>'+history.data.map(c=>`<button type="button" data-recent="${esc(c.partner_id)}" data-name="${esc(c.partner_name)}">${esc(c.partner_name)}${Number(c.unread)?` · ${Number(c.unread)} da leggere`:''}</button>`).join(' ');
+  target.parentElement.after(previous);
+  previous.querySelectorAll('[data-recent]').forEach(b=>b.onclick=()=>{chatTarget={id:b.dataset.recent,name:b.dataset.name};loadConversation()});
+ }
  const search=safe(async()=>{const q=$('recipientSearch').value.trim();if(q.length<2){$('recipients').innerHTML='';return}const res=await db.rpc('bb_find_recipients',{q});aware(res.error);$('recipients').innerHTML=res.data?.length?res.data.map(x=>`<button type="button" data-recipient="${x.id}" data-name="${esc(x.username)}">${esc(x.username)}</button>`).join(' '):'<p>Nessun utente trovato.</p>';document.querySelectorAll('[data-recipient]').forEach(b=>b.onclick=()=>{chatTarget={id:b.dataset.recipient,name:b.dataset.name};loadConversation()})});
  let debounce;$('recipientSearch').oninput=()=>{clearTimeout(debounce);debounce=setTimeout(search,250)};
  $('chatReload').onclick=safe(async()=>await loadConversation());
