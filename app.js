@@ -1,5 +1,5 @@
 /**
- * BETABANDA 0.8 - BETA ONLINE
+ * BETABANDA 0.9 - BETA ONLINE
  * ===========================
  * Questa beta usa davvero Supabase/PostgreSQL. Non contiene dataset locali
  * fittizi: ogni modifica avvenuta con successo viene salvata sul server.
@@ -20,12 +20,12 @@ const configured=/^https:\/\/[\w-]+\.supabase\.co\/?$/.test(SUPABASE_URL)&&SUPAB
 const db=configured?createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY):null;
 let user=null,account=null,roles=[],tab='dashboard',events=[],rooms=[];
 let chatTarget=null;
-const VERSION='0.8.1';
+const VERSION='0.9.0';
 const dashCache={};
-const localPrefKey='bb08-preferences';
-function prefs(){try{return {...JSON.parse(localStorage.getItem('bb07-preferences')||'{}'),...JSON.parse(localStorage.getItem(localPrefKey)||'{}')}}catch{return {}}}
+const localPrefKey='bb09-preferences';
+function prefs(){try{return {...JSON.parse(localStorage.getItem('bb08-preferences')||'{}'),...JSON.parse(localStorage.getItem(localPrefKey)||'{}')}}catch{return {}}}
 function savePrefs(value){localStorage.setItem(localPrefKey,JSON.stringify({...prefs(),...value}))}
-function applyAccessibility(){const p=prefs();document.documentElement.style.setProperty('--font-scale', String(Math.max(.8,Math.min(2,Number(p.scale)||1))));document.documentElement.dataset.font=p.font||'system';document.documentElement.dataset.contrast=p.contrast?'high':'normal';document.documentElement.dataset.theme=p.theme||'auto'}
+function applyAccessibility(){const p=prefs();document.documentElement.style.setProperty('--font-scale', String(Math.max(.8,Math.min(2,Number(p.scale)||1))));document.documentElement.dataset.font=p.font||'system';document.documentElement.dataset.contrast=p.contrast?'high':'normal';document.documentElement.dataset.theme=p.theme||'dark'}
 applyAccessibility();
 const can=r=>roles.includes(r),master=()=>can('total_master');
 const aware=e=>{if(e)throw e};
@@ -39,13 +39,16 @@ const field=(name,label,type='text',value='',extra='')=>`<div><label for="${name
  */
 function allowedPages(){
  const items=[['dashboard','Dashboard','user'],['events','Calendario completo','user']];
- if(master()||roles.some(r=>['member','members_master','school_master','teacher','band_manager'].includes(r)))items.push(['rooms','Aule','user']);
+ if(master()||roles.some(r=>['member','members_master','school_master','teacher','band_manager'].includes(r)))items.push(['rooms','Gestione aule','admin']);
  if(master()||can('members_master'))items.push(['people','Anagrafica','admin']);
+ if(can('member')||can('musician_member'))items.push(['myuniform','La mia dotazione','user']);
  if(master())items.push(['master','Utenti e permessi','admin']);
  for(const [key,label,role] of [['treasury','Tesoreria','treasury'],['school','Scuola di musica','teacher'],['uniforms','Divise','uniform_manager'],['projects','Progetti','council'],['bookings','Prenotazioni','member'],['media','Media','media_manager'],['band','Attività banda','band_manager'],['family','Famiglie','school_master']]){
   if(can(role)||(master()&&key!=='treasury')||(key==='school'&&can('school_master'))||(key==='band'&&can('conductor'))||(key==='projects'&&can('treasury'))){
-   items.push([key,label,'user']);
-   if(['treasury','school','uniforms','projects','media','band'].includes(key))items.push([key,label+' · Gestione','admin']);
+   if(key==='uniforms')items.push([key,'Gestione divise','admin']);
+   else if(key==='school')items.push([key,'Scuola di musica','user']);
+   else items.push([key,label,'user']);
+   if(['treasury','projects','media','band'].includes(key))items.push([key,label+' · Gestione','admin']);
   }
  }
  items.push(['about','Stato dei moduli','user']);return items;
@@ -84,6 +87,7 @@ function wireHeader(){
  $('chatButton').onclick=()=>{if(!user){inform('Accedi per utilizzare la chat');return}navigate('chat')};
  $('noticeButton').onclick=()=>{navigate('notifications')};
  $('brandHome').onclick=()=>navigate('dashboard');
+ document.querySelector('.app-header')?.addEventListener('click',ev=>{if(ev.target.closest('button,a,input'))return;navigate('dashboard')});
 }
 function entry(title,content){main.innerHTML=`<h1>${title}</h1>${content}`}
 async function current(){
@@ -95,7 +99,7 @@ async function current(){
  }
  $('who').textContent=user?(account?account.username:user.email):'Visitatore';$('signout').hidden=!user;
 }
-async function getEvents(){const {data,error}=await db.from('bb_events').select('id,title,kind,starts_at,ends_at,notes,is_public,room_id').gte('starts_at',new Date(Date.now()-14*864e5).toISOString()).order('starts_at').limit(100);aware(error);events=data}
+async function getEvents(){const {data,error}=await db.from('bb_events').select('id,title,kind,starts_at,ends_at,notes,is_public,room_id').gte('starts_at',new Date(new Date().getFullYear()-1,0,1).toISOString()).order('starts_at').limit(1200);aware(error);events=data}
 async function getRooms(){if(!user||!(master()||roles.some(r=>['member','members_master','school_master','teacher','band_manager'].includes(r)))){rooms=[];return}const {data,error}=await db.from('bb_rooms').select('id,name,description,active').order('name');aware(error);rooms=data}
 const fmtDate=s=>new Date(s).toLocaleString('it-IT',{dateStyle:'short',timeStyle:'short'});
 /**
@@ -126,7 +130,7 @@ async function showDashboard(){
  // Le lezioni sono date di lavoro, non ancora prenotazioni vincolanti.
  const addedRows=[...(data.school||[]).filter(x=>x.details?.date).map(x=>({title:x.title,kind:'lezione (prova)',starts_at:x.details.date,ends_at:new Date(new Date(x.details.date).getTime()+3600000).toISOString()})),
  ...(data.bookings||[]).filter(x=>x.details?.date).map(x=>({title:x.title,kind:'aula (prova)',starts_at:x.details.date,ends_at:x.details.end||new Date(new Date(x.details.date).getTime()+3600000).toISOString()}))];
- const calendarRows=[...events,...addedRows].filter(e=>new Date(e.ends_at)>new Date(Date.now()-864e5)).sort((a,b)=>new Date(a.starts_at)-new Date(b.starts_at));
+ const calendarRows=[...events,...addedRows].sort((a,b)=>new Date(a.starts_at)-new Date(b.starts_at));
  const dateValue=x=>x?.details?.date||'';
  const schoolToday=(data.school||[]).filter(x=>dateValue(x).slice(0,10)===today);
  const pendingUniforms=(data.uniforms||[]).filter(x=>x.details?.status==='richiesta');
@@ -134,7 +138,7 @@ async function showDashboard(){
  const cash=(dir)=>(data.treasury||[]).filter(x=>x.details?.direction===dir).reduce((total,x)=>total+(Number(x.details?.amount)||0),0);
  let html=`<div class="dashboard-title"><div><h1>La tua Dashboard</h1><p class="muted">Riquadri personalizzabili · Dati condivisi online</p></div><div class="row"><button id="editDashboard" type="button">✥ Organizza</button><button id="customizeDashboard" type="button">＋ Riquadri</button></div></div><p class="edit-hint" id="editHint" hidden>Modalità modifica: trascina i riquadri; usa ◀ ▶ per riordinarli o il pulsante dimensione. <button id="finishEdit">Fine</button></p>`;
  const blocks={
- agenda:`<section><div class="row split"><h2>📅 Calendario della banda</h2><div class="row viewchoice"><button data-view="day">Giorno</button><button data-view="week">Settimana</button><button data-view="month">Mese</button></div></div><div id="calendarWidget"></div><p><button data-route="events">Apri calendario completo</button></p></section>`,
+ agenda:`<section><div class="row split"><h2>📅 Calendario della banda</h2><div class="row viewchoice"><button data-view="day">Giorno</button><button data-view="week">Settimana</button><button data-view="month">Mese</button></div></div><div class="calendar-toolbar"><button type="button" id="calPrev" aria-label="Periodo precedente">‹</button><span id="calendarPeriod"></span><button type="button" id="calToday">Oggi</button><button type="button" id="calNext" aria-label="Periodo successivo">›</button></div><div id="calendarWidget"></div><p><button data-route="events">Apri calendario completo</button></p></section>`,
  rooms:`<section><h2>🏠 Situazione aule</h2><p><b>${rooms.filter(x=>x.active).length}</b> aule attive configurate.</p><p><b>${(data.bookings||[]).filter(x=>x.details?.date && new Date(x.details.date)<=new Date()&&new Date(x.details.end)>new Date() && x.details.status!=='rifiutata').length}</b> prenotazioni di prova previste ora.</p><p class="muted">Le prenotazioni e le lezioni di prova non costituiscono ancora una disponibilità certificata.</p><button data-route="rooms">Gestisci / consulta aule</button></section>`,
  news:`<section><h2>📣 Aggiornamenti</h2>${(data.media||[]).filter(x=>x.details?.status==='pubblicato'&&x.details?.channel==='dashboard').slice(0,3).map(x=>`<p><b>${esc(x.title)}</b> ${esc(x.details?.notes||'')}</p>`).join('')||'<p class="muted">Nessuna comunicazione della banda.</p>'}</section>`,
  school:`<section><h2>🎼 Lezioni di oggi</h2><p><b>${schoolToday.length}</b> lezioni in archivio di prova per oggi.</p>${schoolToday.slice(0,4).map(x=>`<p>${esc(x.title)} · ${esc(x.details?.student||'')} · ${esc(x.details?.room||'')}</p>`).join('')}<button data-route="school">Apri scuola</button></section>`,
@@ -149,15 +153,50 @@ async function showDashboard(){
  entry('Dashboard',html);
  document.querySelectorAll('[data-route]').forEach(b=>b.onclick=()=>{tab=b.dataset.route;render()});
  const pane=$('calendarWidget');
- const draw=(mode)=>{if(!pane)return;const now=new Date();let from=new Date(now),to=new Date(now);
- if(mode==='day'){from.setHours(0,0,0,0);to.setDate(to.getDate()+1);to.setHours(0,0,0,0)}
- else if(mode==='week'){from.setDate(now.getDate()-(now.getDay()+6)%7);from.setHours(0,0,0,0);to=new Date(from);to.setDate(to.getDate()+7)}
- else{from.setDate(1);from.setHours(0,0,0,0);to=new Date(from);to.setMonth(to.getMonth()+1)}
- const shown=calendarRows.filter(x=>new Date(x.starts_at)<to&&new Date(x.ends_at)>from);
- pane.innerHTML=`<p class="muted">${esc(from.toLocaleDateString('it-IT'))} – ${esc(new Date(to.getTime()-1).toLocaleDateString('it-IT'))}</p>`+(shown.length?shown.map(x=>`<div class="agenda-row"><b>${esc(fmtDate(x.starts_at))}</b><span class="tag">${esc(x.kind)}</span> ${esc(x.title)}</div>`).join(''):'<p>Nessun evento per questo periodo.</p>');
- document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===mode));
+ /**
+  * CALENDARIO: tre rappresentazioni REALMENTE differenti.
+  * La funzione filtra per intervallo ma non trasforma una vista in una lista.
+  * Gli eventi sono quelli già restituiti da Supabase secondo RLS.
+  * Il layout settimanale usa sette colonne; il mensile usa una griglia 7xN.
+  */
+ let calendarOffset=0;
+ const dayStart=(date)=>{const d=new Date(date);d.setHours(0,0,0,0);return d};
+ const addDays=(date,n)=>{const d=new Date(date);d.setDate(d.getDate()+n);return d};
+ const isoDay=(date)=>`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+ const byDay=(date)=>calendarRows.filter(row=>{const a=new Date(row.starts_at),b=new Date(row.ends_at);return a<addDays(date,1)&&b>date});
+ const eventChip=(ev)=>`<button type="button" class="calendar-chip" data-route="events" title="${esc(ev.title)}"><small>${esc(new Date(ev.starts_at).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'}))}</small><span>${esc(ev.title)}</span></button>`;
+ const calendarLabel=$('calendarPeriod');
+ const draw=(mode)=>{
+  if(!pane)return;
+  let now=dayStart(new Date());
+  let anchor=addDays(now,mode==='day'?calendarOffset:mode==='week'?7*calendarOffset:0);
+  if(mode==='month')anchor=new Date(now.getFullYear(),now.getMonth()+calendarOffset,1);
+  let html='';
+  if(mode==='day'){
+   const list=byDay(anchor).sort((a,b)=>new Date(a.starts_at)-new Date(b.starts_at));
+   html=`<div class="calendar-daily">${list.length?list.map(ev=>`<div class="agenda-row"><b>${esc(new Date(ev.starts_at).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'}))}</b><span class="tag">${esc(ev.kind)}</span>${esc(ev.title)}</div>`).join(''):'<p class="muted">Nessuna attività prevista.</p>'}</div>`;
+   if(calendarLabel)calendarLabel.textContent=anchor.toLocaleDateString('it-IT',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  }else if(mode==='week'){
+   const monday=addDays(anchor,-(anchor.getDay()+6)%7);
+   const days=Array.from({length:7},(_,i)=>addDays(monday,i));
+   html=`<div class="calendar-week" role="grid" aria-label="Settimana">${days.map(d=>`<div class="calendar-day-column"><div class="calendar-day-heading">${esc(d.toLocaleDateString('it-IT',{weekday:'short'}))}<strong>${d.getDate()}</strong></div><div class="calendar-day-events">${byDay(d).sort((a,b)=>new Date(a.starts_at)-new Date(b.starts_at)).map(eventChip).join('')||'<span class="calendar-empty">—</span>'}</div></div>`).join('')}</div>`;
+   if(calendarLabel)calendarLabel.textContent=`${days[0].toLocaleDateString('it-IT',{day:'numeric',month:'short'})} – ${days[6].toLocaleDateString('it-IT',{day:'numeric',month:'short',year:'numeric'})}`;
+  }else{
+   const first=new Date(anchor.getFullYear(),anchor.getMonth(),1);
+   const offset=(first.getDay()+6)%7;
+   const gridStart=addDays(first,-offset);
+   const numberOfDays=Math.ceil((offset+new Date(first.getFullYear(),first.getMonth()+1,0).getDate())/7)*7;
+   const days=Array.from({length:numberOfDays},(_,i)=>addDays(gridStart,i));
+   html=`<div class="calendar-month" role="grid" aria-label="Mese"><div class="calendar-month-head">${['Lun','Mar','Mer','Gio','Ven','Sab','Dom'].map(d=>`<span>${d}</span>`).join('')}</div><div class="calendar-month-days">${days.map(d=>{const evs=byDay(d);const onMonth=d.getMonth()===first.getMonth();return `<button class="calendar-date ${onMonth?'':'outside'} ${isoDay(d)===isoDay(now)?'today':''}" type="button" data-calendar-date="${isoDay(d)}" aria-label="${d.toLocaleDateString('it-IT')}: ${evs.length} attività"><strong>${d.getDate()}</strong><span class="calendar-dots">${evs.slice(0,4).map(x=>`<i title="${esc(x.title)}"></i>`).join('')}</span>${evs.length?`<small>${evs.length} att.</small>`:''}</button>`}).join('')}</div></div>`;
+   if(calendarLabel)calendarLabel.textContent=first.toLocaleDateString('it-IT',{month:'long',year:'numeric'});
+  }
+  pane.innerHTML=html;
+  pane.querySelectorAll('[data-route]').forEach(el=>el.onclick=()=>navigate(el.dataset.route));
+  pane.querySelectorAll('[data-calendar-date]').forEach(el=>el.onclick=()=>{const selected=new Date(`${el.dataset.calendarDate}T12:00:00`);const diff=Math.round((dayStart(selected)-now)/86400000);calendarOffset=diff;savePrefs({calendarView:'day'});draw('day')});
+  document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===mode));
  };
- document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{savePrefs({calendarView:b.dataset.view});draw(b.dataset.view)});
+ document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{calendarOffset=0;savePrefs({calendarView:b.dataset.view});draw(b.dataset.view)});
+ $('calPrev').onclick=()=>{calendarOffset--;draw(prefs().calendarView||'week')};$('calNext').onclick=()=>{calendarOffset++;draw(prefs().calendarView||'week')};$('calToday').onclick=()=>{calendarOffset=0;draw(prefs().calendarView||'week')};
  draw(pref.calendarView||'week');
  /** Modalità modifica: pressione lunga su touch, spostamento mediante drag/drop
  * o controlli accessibili. Preferenze persistenti nel browser di questa beta.
@@ -205,12 +244,14 @@ function showRooms(){entry('Aule',`<section><p>Le aule sono conservate nel datab
 async function showPeople(){const {data,error}=await db.from('bb_people').select('*').order('last_name').limit(500);aware(error);
  entry('Anagrafica',`<section><p>Anagrafiche condivise online. Gli account Google sono separati dalle schede delle persone.</p><div class="tablewrap"><table><tr><th>Cognome e nome</th><th>Nascita</th><th>Telefono</th><th></th></tr>${data.map(p=>`<tr><td>${esc(p.last_name)} ${esc(p.first_name)}</td><td>${esc(p.birth_date)}</td><td>${esc(p.phone)}</td><td><button data-person="${p.id}">Apri scheda</button></td></tr>`).join('')}</table></div></section>
  <section><h2 id="personTitle">Nuova scheda</h2><form id="personForm"><input type="hidden" id="personId"><div class="fields">${field('first','Nome')}${field('last','Cognome')}${field('birth','Data di nascita','date')}${field('phone','Telefono')}${field('email','Email','email')}${field('address','Indirizzo')}${field('joined','Ingresso associazione','date')}</div><button class="primary">Salva anagrafica</button> <button type="button" id="clearPerson">Nuova</button></form></section>`);
+ const report=exportsPanel('Anagrafiche',data,[{title:'Cognome',value:x=>x.last_name},{title:'Nome',value:x=>x.first_name},{title:'Data di nascita',value:x=>x.birth_date},{title:'Ingresso associazione',value:x=>x.association_join_date},{title:'Telefono',value:x=>x.phone}]);document.querySelector('main section').insertAdjacentHTML('afterbegin',report.buttons);report.wire();
  function edit(id){const p=data.find(x=>x.id===id);$('personTitle').textContent=p?'Modifica scheda':'Nuova scheda';$('personId').value=p?.id||'';for(const [node,key] of [['first','first_name'],['last','last_name'],['birth','birth_date'],['phone','phone'],['email','email'],['address','address'],['joined','association_join_date']])$(node).value=p?.[key]||''}
  document.querySelectorAll('[data-person]').forEach(b=>b.onclick=()=>edit(b.dataset.person));$('clearPerson').onclick=()=>edit();
  $('personForm').onsubmit=safe(async ev=>{ev.preventDefault();const id=$('personId').value;const record={first_name:$('first').value.trim(),last_name:$('last').value.trim(),birth_date:$('birth').value,phone:$('phone').value||null,email:$('email').value||null,address:$('address').value||null,association_join_date:$('joined').value||null,updated_at:new Date().toISOString()};const res=id?await db.from('bb_people').update(record).eq('id',id):await db.from('bb_people').insert(record);aware(res.error);inform('Anagrafica salvata online');await refresh()});
 }
 async function showMaster(){const [a,r]=await Promise.all([db.from('bb_accounts').select('id,username,status,auth_user_id').order('created_at'),db.from('bb_account_roles').select('account_id,role_code')]);aware(a.error);aware(r.error);
  entry('Master — Utenti e permessi',`<section><p>Gli amici accedono con Google, scelgono uno username e appaiono qui. Senza flag hanno accesso soltanto ai contenuti pubblici.</p><div class="tablewrap"><table><tr><th>Account</th><th>Stato</th><th>Flag attuali</th><th></th></tr>${a.data.map(x=>`<tr><td>${esc(x.username)}</td><td>${esc(x.status)}</td><td>${r.data.filter(z=>z.account_id===x.id).map(z=>esc(z.role_code)).join(', ')||'—'}</td><td><button data-account="${x.id}">Permessi</button></td></tr>`).join('')}</table></div></section><section id="rolesSection"><p>Seleziona un account per modificare i suoi flag.</p></section>`);
+ const report=exportsPanel('Utenti_e_permessi',a.data,[{title:'Username',value:x=>x.username},{title:'Stato',value:x=>x.status},{title:'Flag',value:x=>r.data.filter(z=>z.account_id===x.id).map(z=>z.role_code).join(', ')}]);document.querySelector('main section').insertAdjacentHTML('afterbegin',report.buttons);report.wire();
  const {data:allRoles,error}=await db.from('bb_roles').select('code,display_name').order('display_name');aware(error);
  document.querySelectorAll('[data-account]').forEach(b=>b.onclick=()=>{const id=b.dataset.account,x=a.data.find(z=>z.id===id),set=new Set(r.data.filter(z=>z.account_id===id).map(z=>z.role_code));$('rolesSection').innerHTML=`<h2>Permessi di ${esc(x.username)}</h2><p>Le modifiche diventano effettive al prossimo caricamento dell'account.</p>${allRoles.map(p=>`<label style="margin:6px 0;font-weight:400"><input type="checkbox" style="width:auto" data-role="${esc(p.code)}" ${set.has(p.code)?'checked':''}> ${esc(p.display_name)}</label>`).join('')}`;
  $('rolesSection').querySelectorAll('[data-role]').forEach(c=>c.onchange=safe(async()=>{const res=await db.rpc('bb_set_role',{p_account_id:id,p_role:c.dataset.role,p_enabled:c.checked});aware(res.error);inform('Permesso aggiornato su Supabase');await showMaster()}));
@@ -260,11 +301,69 @@ async function showWorkModule(module){
  module==='projects'?`<div class="metric-line"><b>${records.filter(x=>x.details?.status==='aperto').length}</b> aperti · <b>${records.filter(x=>x.details?.status==='chiuso').length}</b> chiusi</div>`:
  module==='school'?`<div class="metric-line"><b>${records.filter(x=>x.details?.status==='programmata').length}</b> programmate · <b>${records.filter(x=>x.details?.status==='recupero').length}</b> recuperi</div>`:'';
  const rows=records.map(x=>`<tr><td>${esc(x.title)}</td><td>${esc(Object.entries(x.details||{}).map(([k,v])=>k+': '+v).join(' · '))}</td><td><button data-edit-item="${x.id}">Modifica</button></td></tr>`).join('');
+ const report=exportsPanel(cfg.title,records,reportCols(cfg.fields));
  const inputs=cfg.fields.map(([key,label,type,choices])=>type==='select'?`<div><label for="work_${key}">${esc(label)}</label><select id="work_${key}">${choices.split('|').map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('')}</select></div>`:field('work_'+key,esc(label),type));
- entry(cfg.title,`${extra}<section><h2>Come provarlo</h2><p>${esc(guidance[module])}</p>${stateCounts}<p class="muted">Le modifiche sono condivise su Supabase. I flussi gestionali definitivi sono ancora in costruzione.</p><div class="tablewrap"><table><tr><th>${esc(cfg.label)}</th><th>Dettagli</th><th></th></tr>${rows}</table></div></section><section><h2 id="workHeading">Nuovo elemento</h2><form id="workForm"><input type="hidden" id="workId">${field('workTitle','Titolo / descrizione breve','text','','required')}<div class="fields">${inputs.join('')}</div><button class="primary">Salva online</button> <button id="workClear" type="button">Nuovo</button></form></section>`);
+ entry(cfg.title,`${extra}<section><h2>Come provarlo</h2><p>${esc(guidance[module])}</p>${stateCounts}${report.buttons}<p class="muted">Le modifiche sono condivise su Supabase. I flussi gestionali definitivi sono ancora in costruzione.</p><div class="tablewrap"><table><tr><th>${esc(cfg.label)}</th><th>Dettagli</th><th></th></tr>${rows}</table></div></section><section><h2 id="workHeading">Nuovo elemento</h2><form id="workForm"><input type="hidden" id="workId">${field('workTitle','Titolo / descrizione breve','text','','required')}<div class="fields">${inputs.join('')}</div><button class="primary">Salva online</button> <button id="workClear" type="button">Nuovo</button></form></section>`);
+ report.wire();
  const open=(id)=>{const row=records.find(x=>x.id===id);$('workHeading').textContent=row?'Modifica elemento':'Nuovo elemento';$('workId').value=id||'';$('workTitle').value=row?.title||'';cfg.fields.forEach(([key])=>{$('work_'+key).value=row?.details?.[key]??''})};
  document.querySelectorAll('[data-edit-item]').forEach(b=>b.onclick=()=>open(b.dataset.editItem));$('workClear').onclick=()=>open('');
  $('workForm').onsubmit=safe(async ev=>{ev.preventDefault();const id=$('workId').value;const details={};cfg.fields.forEach(([key])=>details[key]=$('work_'+key).value);const payload={title:$('workTitle').value.trim(),details,module,updated_at:new Date().toISOString()};const res=id?await db.from('bb_work_items').update(payload).eq('id',id):await db.from('bb_work_items').insert(payload);aware(res.error);inform('Salvato online');await showWorkModule(module)});
+}
+
+/**
+ * REPORT DI COLLAUDO: esporta le righe effettivamente lette tramite RLS.
+ * Non crea un rendiconto fiscale e non aggira i permessi del modulo.
+ * Stampa PDF: finestra di stampa del browser, quindi "Salva come PDF".
+ * CSV: esportazione semplice con separatori correttamente escapati.
+ */
+function exportsPanel(title, rows, columns){
+ const id='report-'+Math.random().toString(36).slice(2);
+ const data=rows.map(row=>columns.map(c=>String(c.value(row)??'')));
+ const csvCell=value=>'"'+String(value).replace(/"/g,'""')+'"';
+ const csv=[columns.map(c=>csvCell(c.title)),...data.map(row=>row.map(csvCell))].map(r=>r.join(';')).join('\r\n');
+ const buttons=`<div class="row report-actions"><button type="button" id="${id}-pdf">🖨 Esporta PDF / Stampa</button><button type="button" id="${id}-csv">⬇ Esporta CSV</button></div>`;
+ const wire=()=>{
+  const pdf=$(id+'-pdf'),download=$(id+'-csv');
+  if(pdf)pdf.onclick=()=>{
+   const body=`<h1>${esc(title)}</h1><p>BetaBanda · Esportato il ${new Date().toLocaleString('it-IT')}</p><table border="1" cellspacing="0" cellpadding="7"><thead><tr>${columns.map(c=>`<th>${esc(c.title)}</th>`).join('')}</tr></thead><tbody>${data.map(row=>`<tr>${row.map(v=>`<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table><p>Totale righe: ${data.length}</p>`;
+   const popup=window.open('','_blank');if(!popup){inform('Consenti le finestre popup per stampare il report.',true);return}
+   popup.document.write(`<!doctype html><html lang="it"><head><meta charset="utf-8"><title>${esc(title)}</title><style>body{font:12px Arial;padding:22px;color:#111}table{width:100%;border-collapse:collapse}th{background:#eee}td{word-break:break-word}@page{size:A4 landscape;margin:14mm}</style></head><body>${body}</body></html>`);popup.document.close();popup.focus();popup.print();
+  };
+  if(download)download.onclick=()=>{const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='BetaBanda_'+title.replace(/[^a-z0-9]/gi,'_')+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),2000)};
+ };
+ return {buttons,wire};
+}
+function reportCols(fields){return [{title:'Titolo',value:r=>r.title},...fields.map(([key,title])=>({title,value:r=>r.details?.[key]}))]}
+/**
+ * SCUOLA: pannello insegnante e studente distinti, stessi dati sperimentali.
+ * Gli identificativi personali delle lezioni dovranno diventare relazioni
+ * strutturate prima di consentire accesso ai singoli alunni in produzione.
+ */
+async function showSchool(){
+ const teacher=master()||can('teacher')||can('school_master');
+ if(!teacher){entry('Le mie lezioni',`<section><h2>Lezioni e materiale didattico</h2><p>La scheda personale dell'alunno verrà collegata solo dopo aver configurato l'associazione sicura tra account, anagrafica e lezioni.</p><p class="muted">Per proteggere gli alunni, non vengono mostrati i dati degli altri studenti.</p></section>`);return}
+ const res=await db.from('bb_work_items').select('*').eq('module','school').order('created_at',{ascending:false}).limit(300);aware(res.error);
+ const rows=res.data||[],today=new Date().toLocaleDateString('sv-SE');
+ const lessons=rows.filter(x=>String(x.details?.date||'').slice(0,10)===today).sort((a,b)=>String(a.details.date).localeCompare(String(b.details.date)));
+ const upcoming=rows.filter(x=>String(x.details?.date||'').slice(0,10)>=today).sort((a,b)=>String(a.details.date).localeCompare(String(b.details.date)));
+ const tile=x=>`<article class="lesson-card"><div><strong>${esc(x.title)}</strong><p>${esc(x.details?.student||'Alunno non indicato')} · ${esc(x.details?.room||'Aula non indicata')}</p><small>${esc(x.details?.date||'')} · ${esc(x.details?.status||'programmata')}</small></div><div class="row">${['svolta|✓ Registra presenza','recupero|↪ Rinvia','assente|✕ Assente'].map(z=>{const [status,label]=z.split('|');return `<button type="button" data-lesson-status="${x.id}" data-status="${status}">${label}</button>`}).join('')}</div></article>`;
+ entry('Scuola di musica',`<section><h2>Le mie lezioni di oggi</h2>${lessons.map(tile).join('')||'<p>Nessuna lezione registrata per oggi.</p>'}</section><section><h2>Prossime lezioni</h2><div class="lesson-week">${Array.from({length:7},(_,i)=>{const d=new Date();d.setDate(d.getDate()+i);const k=d.toLocaleDateString('sv-SE');const filtered=upcoming.filter(x=>String(x.details?.date||'').slice(0,10)===k);return `<div class="lesson-day"><b>${esc(d.toLocaleDateString('it-IT',{weekday:'short',day:'numeric'}))}</b>${filtered.map(x=>`<p>${esc(x.details.date.slice(11,16))}<br>${esc(x.details?.student||x.title)}</p>`).join('')||'<span>—</span>'}</div>`}).join('')}</div></section><section><h2>Materiale didattico</h2><p class="muted">Il caricamento dei file richiede l'archivio Storage e le autorizzazioni per docente e alunni; non è ancora operativo.</p></section><section><h2>Gestione lezioni · Registro di prova</h2><p>Inserisci e modifica le lezioni nella sezione amministrativa. I comandi di presenza qui aggiornano il registro sperimentale, non certificano compensi.</p><button id="schoolManage">Gestisci lezioni di prova</button></section><section><h2>Report scuola</h2><div id="schoolExports"></div></section>`);
+ $('schoolManage').onclick=()=>showWorkModule('school');
+ document.querySelectorAll('[data-lesson-status]').forEach(b=>b.onclick=safe(async()=>{const row=rows.find(x=>x.id===b.dataset.lessonStatus);if(!row)return;const r=await db.from('bb_work_items').update({details:{...row.details,status:b.dataset.status}}).eq('id',row.id);aware(r.error);await showSchool()}));
+ const report=exportsPanel('Lezioni_scuola',rows,reportCols(MODULES.school.fields));$('schoolExports').innerHTML=report.buttons;report.wire();
+}
+/**
+ * MODULO DIVISE: consultazione per socio volutamente indipendente
+ * dalle tabelle amministrative finché le deleghe RLS non sono pronte.
+ */
+async function showMyUniform(){
+ entry('La mia dotazione',`<section><h2>La mia divisa</h2><p>Qui compariranno capi, taglie, quantità e proprietà del materiale collegato alla tua anagrafica.</p><p class="muted">L'attuale archivio sperimentale delle divise usa nominativi testuali, non identificativi univoci: non è sicuro mostrare dotazioni individuali o inviare richieste per conto di un socio finché non introdurremo una relazione verificata tra account e anagrafica.</p><button id="requestUniform" type="button" disabled>Richiedi cambio/divisa · in preparazione</button></section>`);
+}
+async function showUniformManager(){
+ const res=await db.from('bb_work_items').select('*').eq('module','uniforms').order('created_at',{ascending:false}).limit(300);aware(res.error);const rows=res.data||[];
+ const pending=rows.filter(x=>x.details?.status==='richiesta');
+ entry('Gestione divise',`<section><h2>Richieste dei soci</h2><p><strong>${pending.length}</strong> richieste da verificare (registro di prova).</p>${pending.map(x=>`<article class="lesson-card"><strong>${esc(x.details?.person||'Socio')}</strong><p>${esc(x.details?.article||x.title)} · ${esc(x.details?.size||'')} · q.tà ${esc(x.details?.quantity||'1')}</p></article>`).join('')||'<p>Nessuna richiesta in attesa.</p>'}</section><section><h2>Magazzino e movimenti</h2><p class="muted">Le righe attuali non costituiscono ancora un inventario con giacenze certificate. Puoi continuare a provare inserimenti e cambi di stato.</p><button id="uniformManage">Apri registro divise di prova</button></section><section><h2>Report divise</h2><div id="uniformExports"></div></section>`);
+ $('uniformManage').onclick=()=>showWorkModule('uniforms');const report=exportsPanel('Divise_movimenti',rows,reportCols(MODULES.uniforms.fields));$('uniformExports').innerHTML=report.buttons;report.wire();
 }
 /**
  * CHAT: ricerca username tramite RPC bb_find_recipients, che restituisce
@@ -284,13 +383,12 @@ async function loadConversation(){if(!chatTarget||!$('conversation'))return;$('c
  $('conversation').innerHTML=(res.data||[]).map(x=>`<div class="message ${x.sender_id===account.id?'mine':'theirs'}"><small>${x.sender_id===account.id?'Tu':esc(chatTarget.name)} · ${fmtDate(x.sent_at)}</small><div>${esc(x.body)}</div></div>`).join('')||'<p>Non ci sono ancora messaggi.</p>';
  for(const m of res.data||[]){if(m.recipient_id===account.id&&!m.read_at){const r=await db.rpc('bb_mark_message_read',{p_message:m.id});if(r.error)console.warn(r.error)}}
  updateBadges().catch(console.warn);
- updateBadges().catch(console.warn);
 }
 /** Notifiche in-app: disponibili appena viene eseguito lo SQL 005. */
 async function showSettings(){
  const res=await db.from('bb_notifications').select('title,body,created_at').order('created_at',{ascending:false}).limit(15);aware(res.error);
- entry('Impostazioni',`<section><h2>BetaBanda 0.8.1</h2><p>Controllo versione: aggiorna la pagina dopo la pubblicazione. La grafica rimane provvisoria.</p><button id="reloadNow">Ricarica e verifica aggiornamenti</button></section><section><h2>Aspetto e accessibilità</h2><div class="fields"><div><label for="themeSelect">Tema</label><select id="themeSelect"><option value="auto">Automatico</option><option value="light">Chiaro</option><option value="dark">Scuro</option></select></div><div><label for="fontSelect">Carattere</label><select id="fontSelect"><option value="system">Sistema (originale)</option><option value="calibri">Calibri / alternativa</option><option value="hyper">Atkinson Hyperlegible (alternativa accessibile)</option></select></div><div><label for="fontScale">Ingrandimento caratteri <span id="fontScaleValue"></span></label><input type="range" min="80" max="200" step="5" id="fontScale"></div></div><label class="choice"><input id="highContrast" type="checkbox"> Contrasto elevato</label><p>Le preferenze sono salvate in questo browser. Il font Calibri o Atkinson può utilizzare una alternativa se non installato.</p></section><section><h2>Notifiche interne</h2>${res.data?.map(x=>`<p><b>${esc(x.title)}</b> · ${fmtDate(x.created_at)}<br>${esc(x.body)}</p>`).join('')||'<p>Nessuna notifica.</p>'}</section><section><h2>Notifiche push sul dispositivo</h2><p>Richiedono HTTPS, autorizzazione del browser, Service Worker e un servizio di invio configurato. Su iPhone sono disponibili nelle web app aggiunte alla schermata Home.</p><button id="enablePush">Attiva notifiche push</button><p id="pushStatus" class="muted">La consegna remota sarà operativa solo dopo la configurazione della funzione server.</p></section>`);
- $('reloadNow').onclick=()=>location.reload();const myPrefs=prefs();$('themeSelect').value=myPrefs.theme||'auto';$('fontSelect').value=myPrefs.font||'system';$('fontScale').value=String(Math.round((Number(myPrefs.scale)||1)*100));$('highContrast').checked=!!myPrefs.contrast;const upd=()=>{$('fontScaleValue').textContent=$('fontScale').value+'%';savePrefs({theme:$('themeSelect').value,font:$('fontSelect').value,scale:Number($('fontScale').value)/100,contrast:$('highContrast').checked});applyAccessibility()};['themeSelect','fontSelect','fontScale','highContrast'].forEach(x=>$(x).oninput=upd);$('fontScaleValue').textContent=$('fontScale').value+'%';$('enablePush').onclick=safe(async()=>{
+ entry('Impostazioni',`<section><h2>BetaBanda 0.9.0</h2><p>Controllo versione: aggiorna la pagina dopo la pubblicazione. La grafica rimane provvisoria.</p><button id="reloadNow">Ricarica e verifica aggiornamenti</button></section><section><h2>Aspetto e accessibilità</h2><div class="fields"><div><label for="themeSelect">Tema</label><select id="themeSelect"><option value="auto">Automatico</option><option value="light">Chiaro</option><option value="dark">Scuro</option></select></div><div><label for="fontSelect">Carattere</label><select id="fontSelect"><option value="system">Sistema (originale)</option><option value="calibri">Calibri / alternativa</option><option value="hyper">Atkinson Hyperlegible (alternativa accessibile)</option></select></div><div><label for="fontScale">Ingrandimento caratteri <span id="fontScaleValue"></span></label><input type="range" min="80" max="200" step="5" id="fontScale"></div></div><label class="choice"><input id="highContrast" type="checkbox"> Contrasto elevato</label><p>Le preferenze sono salvate in questo browser. Il font Calibri o Atkinson può utilizzare una alternativa se non installato.</p></section><section><h2>Notifiche interne</h2>${res.data?.map(x=>`<p><b>${esc(x.title)}</b> · ${fmtDate(x.created_at)}<br>${esc(x.body)}</p>`).join('')||'<p>Nessuna notifica.</p>'}</section><section><h2>Notifiche push sul dispositivo</h2><p>Richiedono HTTPS, autorizzazione del browser, Service Worker e un servizio di invio configurato. Su iPhone sono disponibili nelle web app aggiunte alla schermata Home.</p><button id="enablePush">Attiva notifiche push</button><p id="pushStatus" class="muted">La consegna remota sarà operativa solo dopo la configurazione della funzione server.</p></section>`);
+ $('reloadNow').onclick=()=>location.reload();const myPrefs=prefs();$('themeSelect').value=myPrefs.theme||'dark';$('fontSelect').value=myPrefs.font||'system';$('fontScale').value=String(Math.round((Number(myPrefs.scale)||1)*100));$('highContrast').checked=!!myPrefs.contrast;const upd=()=>{$('fontScaleValue').textContent=$('fontScale').value+'%';savePrefs({theme:$('themeSelect').value,font:$('fontSelect').value,scale:Number($('fontScale').value)/100,contrast:$('highContrast').checked});applyAccessibility()};['themeSelect','fontSelect','fontScale','highContrast'].forEach(x=>$(x).oninput=upd);$('fontScaleValue').textContent=$('fontScale').value+'%';$('enablePush').onclick=safe(async()=>{
  if(!('serviceWorker' in navigator)||!('PushManager' in window))throw Error('Notifiche push non supportate in questo browser. Su iPhone aggiungi BetaBanda alla schermata Home.');
  if(!window.BETABANDA_VAPID_PUBLIC_KEY)throw Error('Manca la chiave VAPID pubblica: configurare push-config.js dopo il deploy della Edge Function.');
  const permission=await Notification.requestPermission();if(permission!=='granted')throw Error('Autorizzazione non concessa');
@@ -302,7 +400,7 @@ async function showSettings(){
 function base64ToBytes(value){const str=atob(value.replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from(str,c=>c.charCodeAt(0))}
 
 async function render(){links();updateBadges().catch(console.warn);if(!user){tab='dashboard'}else if(!account){nav.innerHTML='';showSignup();return}
- if(tab==='dashboard')showDashboard();else if(tab==='events')showEvents();else if(tab==='rooms'&&(master()||roles.some(r=>['member','members_master','school_master','teacher','band_manager'].includes(r))))showRooms();else if(tab==='people'&&(master()||can('members_master')))await showPeople();else if(tab==='master'&&master())await showMaster();else if(tab==='chat')await showChat();else if(tab==='notifications')await showNotifications();else if(MODULES[tab] && ((tab!=='treasury'&&can('total_master'))||can(MODULES[tab].role)||(tab==='school'&&can('school_master'))||(tab==='band'&&can('conductor'))||(tab==='projects'&&can('treasury'))))await showWorkModule(tab);else if(tab==='settings')await showSettings();else if(tab==='about')showAbout();else{tab='dashboard';showDashboard()}}
+ if(tab==='dashboard')showDashboard();else if(tab==='events')showEvents();else if(tab==='rooms'&&(master()||roles.some(r=>['member','members_master','school_master','teacher','band_manager'].includes(r))))showRooms();else if(tab==='people'&&(master()||can('members_master')))await showPeople();else if(tab==='myuniform')await showMyUniform();else if(tab==='master'&&master())await showMaster();else if(tab==='chat')await showChat();else if(tab==='notifications')await showNotifications();else if(tab==='school'&&(master()||can('teacher')||can('student')||can('school_master')))await showSchool();else if(tab==='uniforms'&&(master()||can('uniform_manager')))await showUniformManager();else if(MODULES[tab] && ((tab!=='treasury'&&can('total_master'))||can(MODULES[tab].role)||(tab==='school'&&can('school_master'))||(tab==='band'&&can('conductor'))||(tab==='projects'&&can('treasury'))))await showWorkModule(tab);else if(tab==='settings')await showSettings();else if(tab==='about')showAbout();else{tab='dashboard';showDashboard()}}
 async function refresh(){await current();await getRooms();await getEvents();await render()}
 $('signout').onclick=safe(async()=>{await db.auth.signOut();tab='dashboard';await refresh()});
 async function initialize(){if(!configured){entry('Configurazione mancante',`<section>Inserisci Project URL e Publishable Key in <code>config.js</code>, poi ricarica la pagina.</section>`);return}
