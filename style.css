@@ -170,3 +170,13 @@ button,.button {white-space:normal;overflow-wrap:anywhere}
 .calendar-month-head,.calendar-month-days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px}.calendar-month-head span{font-size:.78rem;text-align:center;font-weight:700;padding:5px}.calendar-date{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;min-height:65px!important;padding:5px 2px!important;border-radius:9px!important;gap:3px;background:var(--bb-subpanel)!important;color:var(--bb-text)!important}.calendar-date.outside{opacity:.45}.calendar-date.today{outline:2px solid var(--bb-link)}.calendar-date small{font-size:.64rem}.calendar-dots{display:flex;gap:2px;flex-wrap:wrap;justify-content:center}.calendar-dots i{width:6px;height:6px;border-radius:50%;background:#69d1ab}.calendar-date:hover,.calendar-chip:hover{outline:2px solid var(--bb-link)}
 .lesson-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}.lesson-day{background:var(--bb-subpanel);border-radius:10px;padding:7px 4px;min-height:100px;font-size:.75rem;overflow-wrap:anywhere}.lesson-day p{border-top:1px solid var(--bb-border);padding-top:5px}.lesson-card{background:var(--bb-subpanel);border:1px solid var(--bb-border);border-radius:14px;padding:13px;margin:10px 0}.lesson-card p{margin:5px 0}.report-actions{margin:12px 0}
 @media(max-width:650px){.calendar-week{gap:1px}.calendar-day-events{min-height:90px}.calendar-chip{font-size:.62rem!important;padding:3px!important}.calendar-day-heading{font-size:.65rem}.calendar-date{min-height:49px!important}.calendar-date small{font-size:.54rem}.lesson-day{font-size:.65rem;padding:4px}}
+
+/* BetaBanda 1.0.1 — anteprima ruoli, senza mescolare dati reali e fittizi. */
+.preview-warning,.preview-banner{border:2px solid #dca738!important;background:#392b13!important;color:#fff4db!important;border-radius:15px;padding:14px}
+.preview-banner button{color:#172a40;background:#fff;border:1px solid #fff}
+.preview-checkboxes{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px}
+.preview-checkbox{display:flex;align-items:center;gap:9px;padding:8px;border:1px solid var(--line,#58738f);border-radius:10px}
+.preview-checkbox input{width:auto}
+.preview-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.preview-card{border:1px solid #6d91b5;background:var(--glass,#263c53);color:inherit;border-radius:16px;padding:16px}
+.preview-card h2{margin:0 0 8px}

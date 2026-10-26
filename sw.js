@@ -4,8 +4,8 @@
  * versione non resta bloccata su iOS. I soli file statici possono essere letti
  * dalla cache in caso di assenza rete; le chiamate Supabase NON si memorizzano.
  */
-const CACHE='betabanda-shell-1.0.0';
-const SHELL=['./','./index.html','./style.css?v=1.0.0','./app.js?v=1.0.0','./uniforms.js?v=1.0.0','./config.js','./icon.svg'];
+const CACHE='betabanda-shell-1.0.1';
+const SHELL=['./','./index.html','./style.css?v=1.0.1','./app.js?v=1.0.1','./uniforms.js?v=1.0.1','./config.js','./icon.svg'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(SHELL)).then(()=>self.skipWaiting()))});
 self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('betabanda-shell-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()))});
 self.addEventListener('fetch',event=>{

@@ -20,7 +20,7 @@ const configured=/^https:\/\/[\w-]+\.supabase\.co\/?$/.test(SUPABASE_URL)&&SUPAB
 const db=configured?createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY):null;
 let user=null,account=null,roles=[],tab='dashboard',events=[],rooms=[];
 let chatTarget=null;
-const VERSION='1.0.0';
+const VERSION='1.0.1';
 const dashCache={};
 const localPrefKey='bb09-preferences';
 function prefs(){try{return {...JSON.parse(localStorage.getItem('bb08-preferences')||'{}'),...JSON.parse(localStorage.getItem(localPrefKey)||'{}')}}catch{return {}}}
@@ -34,7 +34,20 @@ async function loadRemotePrefs(){if(!account)return;const r=await db.from('bb_us
 
 function applyAccessibility(){const p=prefs();document.documentElement.style.setProperty('--font-scale', String(Math.max(.8,Math.min(2,Number(p.scale)||1))));document.documentElement.dataset.font=p.font||'system';document.documentElement.dataset.contrast=p.contrast?'high':'normal';document.documentElement.dataset.theme=p.theme||'dark'}
 applyAccessibility();
-const can=r=>roles.includes(r),master=()=>can('total_master');
+// SIMULAZIONE VISIVA: non modifica le autorizzazioni vere né la sessione.
+// Ogni vista simulata è generata con dati fittizi, senza leggere archivi riservati.
+let simulatedRoles=null;
+const effectiveRoles=()=>simulatedRoles===null?roles:simulatedRoles;
+const can=r=>effectiveRoles().includes(r),master=()=>can('total_master');
+const ROLE_PRESETS={
+  'base':[], 'socio':['member'], 'musicante':['member','musician_member'],
+  'allievo':['student'], 'insegnante':['teacher'], 'scuola':['school_master'],
+  'tesoriere':['treasury'], 'divise':['uniform_manager'], 'consiglio':['council'],
+  'banda':['band_manager'], 'maestro':['conductor'], 'media':['media_manager'],
+  'soci_master':['members_master'], 'esterno':['external_musician'], 'totale':['total_master']
+};
+const ROLE_NAMES={treasury:'Tesoreria',council:'Consiglio direttivo',teacher:'Insegnante',student:'Alunno',school_master:'Master scuola',total_master:'Master totale',members_master:'Soci master',member:'Socio standard',musician_member:'Socio musicante',external_musician:'Musicante esterno',conductor:'Maestro',band_manager:'Responsabile banda',media_manager:'Responsabile media',uniform_manager:'Gestore divise'};
+
 const aware=e=>{if(e)throw e};
 function inform(message,error=false){$('alert').textContent=message;$('alert').className=error?'error':'';if(message)setTimeout(()=>{if($('alert').textContent===message)$('alert').textContent=''},6500)}
 const safe=fn=>async(...args)=>{try{await fn(...args)}catch(e){console.error(e);inform(e.message||String(e),true)}};
@@ -46,12 +59,12 @@ const field=(name,label,type='text',value='',extra='')=>`<div><label for="${name
  */
 function allowedPages(){
  const items=[['dashboard','Dashboard','user'],['events','Calendario completo','user']];
- if(master()||roles.some(r=>['member','members_master','school_master','teacher','band_manager'].includes(r)))items.push(['rooms','Gestione aule','admin']);
+ if(master()||effectiveRoles().some(r=>['member','members_master','school_master','teacher','band_manager'].includes(r)))items.push(['rooms','Gestione aule','admin']);
  if(master()||can('members_master'))items.push(['people','Anagrafica','admin']);
  if(can('member')||can('musician_member'))items.push(['myuniform','La mia dotazione','user']);
  if(master())items.push(['master','Utenti e permessi','admin']);
  for(const [key,label,role] of [['treasury','Tesoreria','treasury'],['school','Scuola di musica','teacher'],['uniforms','Divise','uniform_manager'],['projects','Progetti','council'],['bookings','Prenotazioni','member'],['media','Media','media_manager'],['band','Attività banda','band_manager'],['family','Famiglie','school_master']]){
-  if(can(role)||(master()&&key!=='treasury')||(key==='school'&&can('school_master'))||(key==='band'&&can('conductor'))||(key==='projects'&&can('treasury'))){
+  if(can(role)||(master()&&key!=='treasury')||(key==='school'&&(can('school_master')||can('student')))||(key==='band'&&can('conductor'))||(key==='projects'&&can('treasury'))){
    if(key==='uniforms')items.push([key,'Gestione divise','admin']);
    else if(key==='school')items.push([key,'Scuola di musica','user']);
    else items.push([key,label,'user']);
@@ -256,8 +269,57 @@ async function showPeople(){const {data,error}=await db.from('bb_people').select
  document.querySelectorAll('[data-person]').forEach(b=>b.onclick=()=>edit(b.dataset.person));$('clearPerson').onclick=()=>edit();
  $('personForm').onsubmit=safe(async ev=>{ev.preventDefault();const id=$('personId').value;const record={first_name:$('first').value.trim(),last_name:$('last').value.trim(),birth_date:$('birth').value,phone:$('phone').value||null,email:$('email').value||null,address:$('address').value||null,association_join_date:$('joined').value||null,updated_at:new Date().toISOString()};const res=id?await db.from('bb_people').update(record).eq('id',id):await db.from('bb_people').insert(record);aware(res.error);inform('Anagrafica salvata online');await refresh()});
 }
+/**
+ * ANTEPRIMA PERMESSI MASTER
+ * - SOLO un Master reale può attivare la modalità di prova.
+ * - Tutti i dati mostrati sono inventati; non si interrogano tabelle gestionali.
+ * - La simulazione non cambia JWT, account, bb_account_roles né policy RLS.
+ * - La modalità termina automaticamente ricaricando la pagina.
+ * Per testare davvero i vincoli RLS occorre un secondo account autenticato.
+ */
+function startRolePreview(selected){
+ if(!roles.includes('total_master'))throw Error('Solo il Master reale può avviare questa anteprima.');
+ simulatedRoles=[...selected];tab='dashboard';render();
+}
+function endRolePreview(){simulatedRoles=null;tab='master';render()}
+function showPreviewPicker(){
+ if(!roles.includes('total_master'))return;
+ const presetOptions=Object.keys(ROLE_PRESETS).map(key=>`<option value="${key}">${key.replace('_',' ')}</option>`).join('');
+ const checkboxes=Object.entries(ROLE_NAMES).map(([k,name])=>`<label class="preview-checkbox"><input type="checkbox" value="${k}" data-preview-role> ${esc(name)}</label>`).join('');
+ $('rolePreviewBox').innerHTML=`<h2>Anteprima accessi e permessi</h2>
+ <p>Prova come apparirebbe BetaBanda a persone con flag diversi, senza creare account Google.</p>
+ <p class="preview-warning">ANTEPRIMA VISIVA — dati fittizi, nessun dato riservato consultato, nessun permesso modificato.</p>
+ <label for="previewPreset">Profilo di esempio</label><select id="previewPreset"><option value="">Scegli un profilo…</option>${presetOptions}</select>
+ <h3>Oppure combina liberamente i 14 flag</h3><div class="preview-checkboxes">${checkboxes}</div>
+ <p><button type="button" id="launchPreview" class="primary">Visualizza come questo utente</button></p>`;
+ $('previewPreset').onchange=()=>{const selected=new Set(ROLE_PRESETS[$('previewPreset').value]||[]);document.querySelectorAll('[data-preview-role]').forEach(e=>e.checked=selected.has(e.value))};
+ $('launchPreview').onclick=()=>startRolePreview([...document.querySelectorAll('[data-preview-role]:checked')].map(e=>e.value));
+}
+function showRolePreview(){
+ const r=effectiveRoles(),mine=r.includes('member')||r.includes('musician_member'),t=r.includes('teacher'),s=r.includes('student'),tre=r.includes('treasury');
+ const auth=allowedPages();
+ const card=(title,body)=>`<article class="preview-card"><h2>${title}</h2><p>${body}</p></article>`;
+ const examples=[];
+ if(tab==='dashboard'){
+  examples.push(card('📅 Calendario',mine?'Prove, lezioni, concerti e prenotazioni (dimostrazione).':'Solo concerti e servizi pubblici (dimostrazione).'));
+  if(t)examples.push(card('🎓 Le mie lezioni di oggi','15:00 Andrea Rossi · 16:00 Giulia Bianchi — dati inventati'));
+  if(s)examples.push(card('📚 Le mie lezioni','Prossima lezione e materiale didattico — dati inventati'));
+  if(tre)examples.push(card('💶 Riepilogo Tesoreria','Entrate, uscite e progetti conclusi — nessun importo reale'));
+  if(r.includes('uniform_manager'))examples.push(card('👕 Gestione divise','Magazzino, richieste, consegne — dimostrazione'));
+  if(mine)examples.push(card('👔 La mia dotazione','Richieste di divise e capi assegnati — dimostrazione'));
+  if(r.includes('council'))examples.push(card('📁 Progetti','Progetti associativi — dimostrazione'));
+ }else{
+  const item=auth.find(x=>x[0]===tab);
+  if(item)examples.push(card(esc(item[1]),'Questa è l’anteprima della sezione consentita al profilo selezionato. Nessuna interrogazione o modifica ai dati reali.'));
+  else examples.push(card('Accesso non consentito','Questa sezione non è disponibile per i flag selezionati.'));
+ }
+ // Il pannello è intenzionalmente escluso dai flussi Supabase.
+ entry('Simulazione ruolo · '+(tab==='dashboard'?'Dashboard':tab),`<section class="preview-banner"><strong>MODALITÀ SIMULAZIONE</strong><p>Flag simulati: ${r.length?r.map(x=>esc(ROLE_NAMES[x]||x)).join(', '):'nessuno (utente base)'}</p><button type="button" id="stopRolePreview">Torna al Master reale</button></section><div class="preview-grid">${examples.join('')}</div><p class="muted">Prova le voci del menu: la simulazione cambia soltanto ciò che viene mostrato. Non certifica la sicurezza dei permessi del database.</p>`);
+ $('stopRolePreview').onclick=endRolePreview;
+}
 async function showMaster(){const [a,r]=await Promise.all([db.from('bb_accounts').select('id,username,status,auth_user_id').order('created_at'),db.from('bb_account_roles').select('account_id,role_code')]);aware(a.error);aware(r.error);
- entry('Master — Utenti e permessi',`<section><p>Gli amici accedono con Google, scelgono uno username e appaiono qui. Senza flag hanno accesso soltanto ai contenuti pubblici.</p><div class="tablewrap"><table><tr><th>Account</th><th>Stato</th><th>Flag attuali</th><th></th></tr>${a.data.map(x=>`<tr><td>${esc(x.username)}</td><td>${esc(x.status)}</td><td>${r.data.filter(z=>z.account_id===x.id).map(z=>esc(z.role_code)).join(', ')||'—'}</td><td><button data-account="${x.id}">Permessi</button></td></tr>`).join('')}</table></div></section><section id="rolesSection"><p>Seleziona un account per modificare i suoi flag.</p></section>`);
+ entry('Master — Utenti e permessi',`<section><p>Gli amici accedono con Google, scelgono uno username e appaiono qui. Senza flag hanno accesso soltanto ai contenuti pubblici.</p><div class="tablewrap"><table><tr><th>Account</th><th>Stato</th><th>Flag attuali</th><th></th></tr>${a.data.map(x=>`<tr><td>${esc(x.username)}</td><td>${esc(x.status)}</td><td>${r.data.filter(z=>z.account_id===x.id).map(z=>esc(z.role_code)).join(', ')||'—'}</td><td><button data-account="${x.id}">Permessi</button></td></tr>`).join('')}</table></div></section><section id="rolePreviewBox" aria-label="Anteprima dei ruoli"></section><section id="rolesSection"><p>Seleziona un account per modificare i suoi flag.</p></section>`);
+ showPreviewPicker();
  const report=exportsPanel('Utenti_e_permessi',a.data,[{title:'Username',value:x=>x.username},{title:'Stato',value:x=>x.status},{title:'Flag',value:x=>r.data.filter(z=>z.account_id===x.id).map(z=>z.role_code).join(', ')}]);document.querySelector('main section').insertAdjacentHTML('afterbegin',report.buttons);report.wire();
  const {data:allRoles,error}=await db.from('bb_roles').select('code,display_name').order('display_name');aware(error);
  document.querySelectorAll('[data-account]').forEach(b=>b.onclick=()=>{const id=b.dataset.account,x=a.data.find(z=>z.id===id),set=new Set(r.data.filter(z=>z.account_id===id).map(z=>z.role_code));$('rolesSection').innerHTML=`<h2>Permessi di ${esc(x.username)}</h2><p>Le modifiche diventano effettive al prossimo caricamento dell'account.</p>${allRoles.map(p=>`<label style="margin:6px 0;font-weight:400"><input type="checkbox" style="width:auto" data-role="${esc(p.code)}" ${set.has(p.code)?'checked':''}> ${esc(p.display_name)}</label>`).join('')}`;
@@ -417,9 +479,9 @@ async function showSettings(){
 }
 function base64ToBytes(value){const str=atob(value.replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from(str,c=>c.charCodeAt(0))}
 
-async function render(){links();updateBadges().catch(console.warn);if(!user){tab='dashboard'}else if(!account){nav.innerHTML='';showSignup();return}
+async function render(){links();if(simulatedRoles!==null){showRolePreview();return}updateBadges().catch(console.warn);if(!user){tab='dashboard'}else if(!account){nav.innerHTML='';showSignup();return}
  if(tab==='dashboard')showDashboard();else if(tab==='events')showEvents();else if(tab==='rooms'&&(master()||roles.some(r=>['member','members_master','school_master','teacher','band_manager'].includes(r))))showRooms();else if(tab==='people'&&(master()||can('members_master')))await showPeople();else if(tab==='myuniform')await showMyUniform();else if(tab==='master'&&master())await showMaster();else if(tab==='chat')await showChat();else if(tab==='notifications')await showNotifications();else if(tab==='school'&&(master()||can('teacher')||can('student')||can('school_master')))await showSchool();else if(tab==='uniforms'&&(master()||can('uniform_manager')))await showUniformManager();else if(MODULES[tab] && ((tab!=='treasury'&&can('total_master'))||can(MODULES[tab].role)||(tab==='school'&&can('school_master'))||(tab==='band'&&can('conductor'))||(tab==='projects'&&can('treasury'))))await showWorkModule(tab);else if(tab==='settings')await showSettings();else if(tab==='about')showAbout();else{tab='dashboard';showDashboard()}}
-async function refresh(){await current();await getRooms();await getEvents();await render()}
+async function refresh(){simulatedRoles=null;await current();await getRooms();await getEvents();await render()}
 $('signout').onclick=safe(async()=>{await db.auth.signOut();tab='dashboard';await refresh()});
 async function initialize(){if(!configured){entry('Configurazione mancante',`<section>Inserisci Project URL e Publishable Key in <code>config.js</code>, poi ricarica la pagina.</section>`);return}
  await refresh();if(!user){entry('Benvenuto in BetaBanda',`<section><p>Puoi consultare gli eventi pubblici senza login, oppure accedere con Google per utilizzare i moduli abilitati.</p><button class="primary" id="login">Accedi con Google</button></section><section><h2>Eventi pubblici</h2>${events.length?events.map(x=>`<p><b>${esc(x.title)}</b> — ${fmtDate(x.starts_at)}</p>`).join(''):'Nessun evento pubblico inserito.'}</section>`);
