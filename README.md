@@ -1,67 +1,43 @@
-# BetaBanda — consegna tecnica iniziale
+# BetaBanda 0.6.0 — Beta condivisa online
 
-## Stato effettivo
+## Stato reale
 
-Questo pacchetto contiene una **prima PWA dimostrativa funzionante**, senza server né account reali, e uno **schema PostgreSQL iniziale**. NON è il gestionale di produzione. Nessuna funzione di pagamento, accesso reale, invio messaggi, push, condivisione online o liquidazione irrevocabile è attiva.
+- Supabase Auth Google e le funzioni 0.5 rimangono operative.
+- Chat: ricerca destinatari **tra account attivi registrati**, invio e lettura messaggi salvati nel database, notifiche **interne** alla ricezione.
+- Schede di lavoro sperimentali online: Tesoreria, Scuola, Divise, Progetti, Prenotazioni, Media, Banda, Famiglie. Sono archivi condivisi di **prova**, non i processi gestionali definitivi.
+- Push: service worker, registrazione della sottoscrizione e funzione server forniti. **Le push sul telefono non arrivano finché la funzione e un webhook sicuro non sono configurati.**
+- Grafica: volutamente provvisoria. Non usare dati personali reali o contabilizzare pagamenti veri.
 
-**Non inserire dati personali veri, password, documenti riservati o importi di pagamenti reali nella demo.** I dati salvati nel browser non sono protetti come un backend autenticato.
+## Installazione
 
-## Come provarla sul PC
+1. Supabase → SQL Editor → New query: eseguire `db/005_moduli_chat_push.sql` **una volta**, dopo lo script `004` già applicato. Non ripetere `004` e non cancellare tabelle.
+2. Lasciare inalterati i valori Supabase già corretti nel `web/config.js` **locale** (URL + `sb_publishable_`). Sostituire nel repository GitHub Pages i file dell'app con il contenuto di `web/`.
+3. Aprire `https://lucafo96.github.io/BetaBanda/`, forzare aggiornamento (Ctrl+Shift+R), verificare che in fondo compaia `0.6.0`.
+4. Test: due account Google distinti e attivi. Ricercare nella Chat almeno 2 lettere dello username del destinatario, inviare un messaggio. Sul secondo account aprire Impostazioni per consultare le notifiche interne e Chat per rispondere. Non occorre il flag `member` per chattare; serve account registrato.
+5. Per provare i moduli, assegnare all'amico i flag appropriati nel pannello Master; **Tesoreria richiede sempre `treasury`** anche per il Master. Tutti i dati sperimentali sono memorizzati in `bb_work_items`.
 
-Apri `web/index.html` in un browser per vedere l'interfaccia. Per provare l'installazione PWA e il service worker devi servirla via HTTPS (ad esempio GitHub Pages) o localhost.
+## Push su telefono — attivazione separata
 
-Da un terminale nella cartella `web`:
+1. Generare una coppia di chiavi VAPID con un generatore affidabile (es. `npx web-push generate-vapid-keys` su una macchina fidata). Salvare la private key **solo** come segreto di Supabase Edge Functions.
+2. Impostare la chiave **pubblica** in `web/push-config.js`. Mai includere la private key o `service_role` nei file pubblicati su GitHub.
+3. Modificare l'indirizzo `mailto:` dell'Edge Function con un indirizzo tecnico valido. Distribuire `edge-functions/push-notify/index.ts` come funzione Supabase `push-notify`. Impostare segreti `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `PUSH_WEBHOOK_SECRET` (segreto robusto) e verificare `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` assegnati all'ambiente funzione.
+4. Impostare autenticazione della Edge Function e del webhook secondo la documentazione corrente Supabase: il codice verifica `x-bb-secret`; il webhook deve trasmetterlo. Non disabilitare protezioni o esporre segreti per risolvere un errore.
+5. Configurare **Database Webhooks** in Supabase: INSERT su `public.bb_notifications` → funzione `push-notify`, intestazione `x-bb-secret` uguale a `PUSH_WEBHOOK_SECRET`.
+6. Su iOS/iPadOS, aprire il sito in Safari e usare «Aggiungi a schermata Home», poi **dall'app installata** aprire Impostazioni e autorizzare le push. Su Android e desktop usare un browser compatibile.
+7. Collaudare end-to-end **prima di dichiarare push operative**. In caso di errori controllare i log Edge Function e database. La possibilità di ricevere push dipende da OS, autorizzazioni, rete e configurazione browser.
 
-```bash
-python -m http.server 8080
-```
+## Limitazioni dichiarate
 
-Apri `http://localhost:8080`.
+- Chat testuale 1:1; ancora senza allegati, ricerca avanzata o gruppi. Nessuna notifica push senza configurazione dell'invio remoto.
+- Le schede `bb_work_items` non bloccano liquidazioni, magazzino negativo o appuntamenti sovrapposti: perciò **non gestiscono ancora operazioni definitive**.
+- Le notifiche interne si vedono nella pagina Impostazioni ricaricandola; non c'è ancora aggiornamento realtime.
+- La visualizzazione delle anagrafiche resta limitata al Master e Soci master. La relazione genitore/figlio è dimostrativa, **non** concede deleghe operative.
+- Prima di dati reali: backup, privacy, validazione dei permessi per ogni modulo e collaudo dispositivi.
 
-Su GitHub Pages: carica il contenuto della cartella `web` nella root del repository o in `/docs` e attiva Pages dalla branch scelta. I percorsi sono relativi, quindi la PWA può essere ospitata anche in una sottocartella.
+## Manutenzione
 
-## Funzioni realmente operative nella demo
-
-- Dashboard con contenuti ed eventi fittizi.
-- Menu di tutte le schede pianificate e layout responsive.
-- Aggiunta di un evento dimostrativo.
-- Prenotazione locale per studio con controllo base di collisione in una stessa aula.
-- Cambio tema chiaro/scuro/automatico.
-- Regolazione dimensione caratteri 80–150%.
-- Salvataggio locale nel browser via localStorage.
-- Esportazione JSON e ripristino dei dati fittizi del browser.
-- Manifest e predisposizione installazione PWA.
-
-## Non ancora operativo
-
-Database online; login con username/password; almeno un Master reale; ruoli lato server; anagrafiche reali; import CSV/XLS; lezioni; compensi; liquidazioni; prenotazioni condivise; push; chat; documenti; PayPal; Meta; backup integrale indipendente; report Excel/PDF.
-
-## Database
-
-Il file `db/001_schema.sql` è **un modello iniziale**, non una migrazione approvata per la produzione. Rappresenta le entità e i legami fondamentali. Manca il livello di autorizzazioni lato server (RLS), la gestione robusta di collisioni delle aule, le stored procedure atomiche di doppia conferma, la protezione dei record finalizzati, le migrazioni e la configurazione dell'identità senza email. Non applicarlo a un progetto contenente dati reali.
-
-## Decisioni architetturali per la fase successiva
-
-1. Autenticazione username senza obbligo di email, reset da Master e codice di recupero nella beta a Master singolo.
-2. 14 flag indipendenti + accesso base senza flag: dashboard pubblica, notizie, concerti e social.
-3. Anagrafica generale distinta da account e registri soci annuali.
-4. Un calendario centralizzato e un registro economico centrale senza duplicazioni.
-5. Pagamenti: l'azione finale richiede Tesoreria; pagamento soci con conferma bilaterale; insegnanti pagati a pacchetti di lezioni.
-6. Backup ZIP autosufficiente con LEGGIMI_PRIMA, tabelle aperte, allegati e checksum. Il pulsante di backup effettivo arriverà con il backend.
-
-## Installazione PWA e test
-
-L'icona è temporanea come concordato. La beta grafica definitiva verrà dopo il collaudo. Su iPhone aggiungi la pagina alla schermata Home tramite Safari; su Android tramite Chrome; su PC apri il browser. Al momento i dati della demo non si sincronizzano tra dispositivi.
-
-## Proprietà e continuità
-
-Il codice è in file HTML/CSS/JS leggibili e lo schema in SQL testuale. Conserva lo ZIP sorgente e registra ogni versione. Prima di introdurre dati reali andranno aggiunti test automatizzati, audit trail protetto, backup e politiche GDPR.
-
-
-## Aggiornamento V2 — Gestione divise
-
-Inclusa la scheda **Gestione divise** nella demo locale: creazione di articoli per taglia, costi/prezzi, giacenze, richieste, conferme di consegna, assegnazioni proprietà banda, vendite proprietà socio, restituzioni riutilizzabili/scarto e registro movimenti. Il 14° ruolo è **Gestore divise**.
-
-Per provarla apri `web/index.html`, scheda **Gestione divise**. Tutti i dati sono simulati e locali al browser. Le vendite NON effettuano pagamenti reali e NON scrivono ancora nella Tesoreria cloud. La procedura guidata al primo accesso socio, il collegamento alle anagrafiche reali, la gestione resi parziali, le richieste di cambio taglia e l'autenticazione/ruoli lato server sono requisiti NON ancora implementati.
-
-Nuovo file `db/002_divise.sql` con schema relazionale, ruoli, varianti, richieste, dotazioni e movimenti stock. Solo specifica per sviluppo: senza policy RLS e API non deve essere esposto a utenti reali.
+- `web/app.js`: componenti applicativi, con funzioni commentate. `MODULES` definisce il prototipo dei moduli.
+- `db/005_moduli_chat_push.sql`: strutture, vincoli, policy RLS (prima barriera di sicurezza).
+- `web/sw.js`: visualizzazione notifiche push.
+- `edge-functions/push-notify/index.ts`: invio push server-side opzionale; **non** può girare dentro GitHub Pages.
+- Tutte le modifiche allo schema devono essere nuove migrazioni numerate e documentate. **Non eliminare l'archivio esistente.**
