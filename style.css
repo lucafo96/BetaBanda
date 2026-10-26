@@ -46,3 +46,119 @@ body{background:radial-gradient(circle at 12% 10%,#d8e6ff 0,transparent 38%),rad
 :root[data-theme="dark"] #menuPopover button{background:#223955;color:#fff}
 :root[data-theme="dark"] input,:root[data-theme="dark"] select,:root[data-theme="dark"] textarea{background:#203044;color:#fff}
 :root[data-contrast="high"] .tile>section{background:#000!important;color:#fff!important}
+
+
+/* ================================================================
+   BETABANDA 0.8.1 - SISTEMA COLORI ACCESSIBILE
+   Correzione: alcune superfici restavano chiare quando il testo
+   diventava bianco (tema scuro/automatico). Tutte le superfici
+   usano ora una tavolozza coerente per testo, bordi e sfondi.
+   I riquadri mantengono un effetto vetro LEGGERO, ma hanno uno
+   sfondo sufficientemente opaco per non sacrificare leggibilita'.
+   ================================================================ */
+:root {
+  color-scheme: light;
+  --bb-page: #edf3fa;
+  --bb-panel: rgba(255,255,255,.97);
+  --bb-subpanel: #edf3f9;
+  --bb-text: #162a40;
+  --bb-muted: #475d72;
+  --bb-border: #b3c6d8;
+  --bb-input: #ffffff;
+  --bb-link: #164c92;
+  --bb-primary: #185ba2;
+  --bb-primary-text: #ffffff;
+  --bb-header: #173955;
+  --bb-menu: #ffffff;
+  --bb-shadow: rgba(13,40,67,.13);
+  --glass: var(--bb-panel);
+  color:var(--bb-text);
+  background:var(--bb-page);
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bb-page:#101923;
+  --bb-panel:rgba(28,43,60,.97);
+  --bb-subpanel:#263b51;
+  --bb-text:#f4f8fd;
+  --bb-muted:#d4e0ee;
+  --bb-border:#627b95;
+  --bb-input:#203249;
+  --bb-link:#a9d4ff;
+  --bb-primary:#a7d1ff;
+  --bb-primary-text:#0a2137;
+  --bb-header:#152c42;
+  --bb-menu:#1c2b3c;
+  --bb-shadow:rgba(0,0,0,.4);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="auto"] {
+    color-scheme:dark;
+    --bb-page:#101923;--bb-panel:rgba(28,43,60,.97);
+    --bb-subpanel:#263b51;--bb-text:#f4f8fd;
+    --bb-muted:#d4e0ee;--bb-border:#627b95;
+    --bb-input:#203249;--bb-link:#a9d4ff;
+    --bb-primary:#a7d1ff;--bb-primary-text:#0a2137;
+    --bb-header:#152c42;--bb-menu:#1c2b3c;
+    --bb-shadow:rgba(0,0,0,.4);
+  }
+}
+/* Modalita' ad alto contrasto: precede SEMPRE i temi. */
+:root[data-contrast="high"] {
+  color-scheme:dark;
+  --bb-page:#000;--bb-panel:#000;--bb-subpanel:#101010;
+  --bb-text:#fff;--bb-muted:#fff;--bb-border:#fff;
+  --bb-input:#000;--bb-link:#fff;
+  --bb-primary:#fff;--bb-primary-text:#000;
+  --bb-header:#000;--bb-menu:#000;--bb-shadow:transparent;
+}
+/* Regole generali: colore e sfondi devono cambiare insieme. */
+html,body { color:var(--bb-text);background:var(--bb-page) !important; }
+body { background-image:none !important; }
+main,main p,main h1,main h2,main h3,main td,main th,
+main label,main strong,main b,main .stat {color:var(--bb-text)}
+main section,main .card,main .hero,.tile>section,
+#menuPopover,#menuPopover nav {
+  background:var(--bb-panel) !important;
+  color:var(--bb-text) !important;
+  border-color:var(--bb-border) !important;
+  box-shadow:0 6px 24px var(--bb-shadow);
+}
+.tile>section {backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px)}
+.muted,footer,.message small,#menuPopover .nav-group h3 {color:var(--bb-muted) !important}
+.metric-line,.messages,.message,.tag,.edit-hint,.agenda-row,
+.barline,th {background:var(--bb-subpanel) !important;color:var(--bb-text) !important}
+.message.mine {background:var(--bb-subpanel) !important;border:2px solid var(--bb-border)}
+td,th,.notice-row,.agenda-row {border-color:var(--bb-border) !important}
+input,select,textarea {
+  background:var(--bb-input) !important;color:var(--bb-text) !important;
+  border:1.5px solid var(--bb-border) !important;
+}
+input::placeholder,textarea::placeholder{color:var(--bb-muted);opacity:1}
+button,.button,#menuPopover button {
+  background:var(--bb-input) !important;color:var(--bb-text) !important;
+  border:1.5px solid var(--bb-border) !important;
+}
+button.primary,button.active {
+  background:var(--bb-primary) !important;
+  color:var(--bb-primary-text) !important;
+  border-color:var(--bb-primary) !important;
+}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,
+textarea:focus-visible {outline:3px solid var(--bb-link);outline-offset:3px}
+a{color:var(--bb-link)}
+.app-header {background:var(--bb-header) !important;color:#fff !important}
+.app-header button,.app-header .brand-home,.app-header .header-icon {
+  color:#fff !important;background:rgba(255,255,255,.12) !important;
+  border-color:rgba(255,255,255,.45) !important;
+}
+#menuPopover{background:var(--bb-menu) !important}
+#alert:not(:empty){background:var(--bb-subpanel);color:var(--bb-text);border:1px solid var(--bb-border)}
+#alert.error{background:#70202b;color:#fff}
+:root[data-contrast="high"] main section,
+:root[data-contrast="high"] .tile>section,
+:root[data-contrast="high"] #menuPopover {border:2px solid #fff !important;box-shadow:none}
+:root[data-contrast="high"] .header-icon {border:2px solid #fff !important}
+/* Protegge l'ingrandimento al 200% da clipping dei pulsanti. */
+button,.button {white-space:normal;overflow-wrap:anywhere}
+.tile {min-width:0}.tile>section {overflow-wrap:anywhere}
