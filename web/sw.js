@@ -1,1 +1,16 @@
-const CACHE='betabanda-demo-v2';const ASSETS=['./','./index.html','./style.css','./app.js','./manifest.webmanifest','./icon.svg'];self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting())));self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));self.addEventListener('fetch',e=>{if(e.request.method==='GET' && new URL(e.request.url).origin===self.location.origin)e.respondWith(fetch(e.request).catch(()=>caches.match(e.request)))});
+/* BETABANDA PUSH SERVICE WORKER
+ * Riceve notifiche dal servizio Supabase Edge Function.
+ * Non contiene token, password o chiavi server.
+ */
+self.addEventListener('push', event => {
+  let data={title:'BetaBanda',body:'Hai una nuova notifica',url:'./'};
+  try { if(event.data) data={...data,...event.data.json()}; } catch (_) {}
+  event.waitUntil(self.registration.showNotification(data.title, {
+    body:data.body, icon:'./icon.svg', badge:'./icon.svg',
+    tag:'bb-'+(data.id||Date.now()), data:{url:data.url||'./'}
+  }));
+});
+self.addEventListener('notificationclick', event => {
+ event.notification.close();
+ event.waitUntil(clients.openWindow(event.notification.data?.url||'./'));
+});
